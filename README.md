@@ -11,7 +11,41 @@
 
 ## 使用方式
 
-直接打开 `index.html` 就能使用。数据保存在浏览器 `localStorage`，换浏览器或清缓存会丢失，请定期用“备份 JSON”导出。
+直接打开 `index.html` 就能使用。未连接 Firebase 前，数据保存在浏览器 `localStorage`，换浏览器或清缓存会丢失。连接 Firebase 并登录后，开销记录会保存到 Firestore。
+
+手机端也是一样：登录同一个 Google 账号后，会读取同一个 Firebase 账号下的历史记录。DeepSeek API key 只保存在当前浏览器，保存一次后下次打开会自动填回，不会放进 JSON 导出文件。
+
+## Firebase 云端同步
+
+在 Firebase 控制台完成这些步骤：
+
+1. 点项目首页的“添加应用”，选择 Web 应用。
+2. 注册应用后复制 `firebaseConfig` 代码。
+3. 打开网页的“设置” -> “Firebase 云端同步”，粘贴配置并保存。
+4. 在 Firebase 控制台启用 Authentication，登录方式选择 Google。
+5. 在 Authentication 的授权网域里加入你的 GitHub Pages 域名，例如 `zhaop531-arch.github.io`。
+6. 在 Firestore Database 里创建数据库。
+7. Firestore 规则建议使用：
+
+```txt
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+登录后，数据路径是：
+
+```txt
+users/{你的Firebase用户ID}/records/{记录ID}
+```
+
+页面里的“导出全部 JSON”和“导出 CSV”会导出当前账号下已加载的全部历史记录。
 
 ## DeepSeek API
 

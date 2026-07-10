@@ -19,12 +19,24 @@ const DEFAULT_STATE = {
     currency: "CNY",
     deepseekKey: "",
     deepseekModel: "deepseek-v4-flash",
-    deepseekEndpoint: "https://api.deepseek.com/chat/completions"
+    deepseekEndpoint: "https://api.deepseek.com/chat/completions",
+    firebaseConfigText: ""
   }
 };
 
 const state = loadState();
 let pendingAnalysis = [];
+const firebaseState = {
+  app: null,
+  auth: null,
+  db: null,
+  user: null,
+  unsubAuth: null,
+  unsubRecords: null,
+  modules: null,
+  ready: false,
+  initializing: false
+};
 
 const els = {};
 
@@ -71,11 +83,25 @@ function bindElements() {
     "search-records",
     "records-list",
     "export-csv",
+    "export-all-json",
     "import-csv",
     "export-json",
+    "mobile-menu-button",
+    "sidebar-backdrop",
     "settings-form",
     "monthly-budget",
     "currency",
+    "firebase-form",
+    "firebase-config",
+    "firebase-status",
+    "firebase-sign-in",
+    "firebase-sign-out",
+    "firebase-sync-now",
+    "quick-api-form",
+    "quick-deepseek-key",
+    "quick-deepseek-model",
+    "quick-deepseek-endpoint",
+    "quick-forget-key",
     "api-form",
     "deepseek-key",
     "deepseek-model",
@@ -99,10 +125,10 @@ function hydrateControls() {
 
   els.monthlyBudget.value = state.settings.monthlyBudget || "";
   els.currency.value = state.settings.currency;
-  els.deepseekKey.value = state.settings.deepseekKey || "";
-  els.deepseekModel.value = state.settings.deepseekModel;
-  els.deepseekEndpoint.value = state.settings.deepseekEndpoint;
+  els.firebaseConfig.value = state.settings.firebaseConfigText || "";
+  syncApiControls();
   els.aiStatus.textContent = state.settings.deepseekKey ? "DeepSeek 已启用" : "离线分析可用";
+  setFirebaseStatus(state.settings.firebaseConfigText ? "未登录" : "未连接", state.settings.firebaseConfigText ? "warning" : "");
 }
 
 function bindEvents() {
@@ -112,6 +138,12 @@ function bindEvents() {
 
   document.querySelectorAll("[data-go-tab]").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.goTab));
+  });
+
+  els.mobileMenuButton.addEventListener("click", toggleSidebar);
+  els.sidebarBackdrop.addEventListener("click", closeSidebar);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 1040) closeSidebar();
   });
 
   els.analyzeInput.addEventListener("click", analyzeInput);
@@ -124,16 +156,25 @@ function bindEvents() {
   els.filterMonth.addEventListener("change", renderRecords);
   els.searchRecords.addEventListener("input", renderRecords);
   els.exportCsv.addEventListener("click", exportCsv);
+  els.exportAllJson.addEventListener("click", exportJson);
   els.importCsv.addEventListener("change", importCsv);
   els.exportJson.addEventListener("click", exportJson);
   els.settingsForm.addEventListener("submit", saveSettings);
+  els.firebaseForm.addEventListener("submit", saveFirebaseSettings);
+  els.firebaseSignIn.addEventListener("click", signInFirebase);
+  els.firebaseSignOut.addEventListener("click", signOutFirebase);
+  els.firebaseSyncNow.addEventListener("click", syncAllRecordsToCloud);
   els.apiForm.addEventListener("submit", saveApiSettings);
+  els.quickApiForm.addEventListener("submit", saveApiSettings);
   els.forgetKey.addEventListener("click", forgetApiKey);
+  els.quickForgetKey.addEventListener("click", forgetApiKey);
   els.sampleData.addEventListener("click", addSampleData);
   els.refreshTips.addEventListener("click", () => {
     renderTips();
     toast("建议已刷新");
   });
+
+  initFirebaseFromSaved();
 }
 
 function setTodayDefaults() {
@@ -156,6 +197,19 @@ function switchTab(tabName) {
     settings: "设置"
   };
   els.pageTitle.textContent = titles[tabName] || "总览";
+  closeSidebar();
+}
+
+function toggleSidebar() {
+  const isOpen = document.body.classList.toggle("sidebar-open");
+  els.mobileMenuButton.setAttribute("aria-expanded", String(isOpen));
+  els.mobileMenuButton.setAttribute("aria-label", isOpen ? "关闭菜单" : "打开菜单");
+}
+
+function closeSidebar() {
+  document.body.classList.remove("sidebar-open");
+  els.mobileMenuButton.setAttribute("aria-expanded", "false");
+  els.mobileMenuButton.setAttribute("aria-label", "打开菜单");
 }
 
 async function analyzeInput() {
@@ -370,6 +424,7 @@ function saveSelectedAnalysis() {
 
   state.records.push(...selected);
   persist();
+  saveRecordsToCloud(selected);
   pendingAnalysis = [];
   els.analysisPanel.hidden = true;
   els.expenseInput.value = "";
@@ -399,6 +454,7 @@ function saveManualRecord(event) {
 
   state.records.push(record);
   persist();
+  saveRecordsToCloud([record]);
   event.target.reset();
   els.manualDate.value = formatDate(new Date());
   renderAll();
@@ -575,6 +631,7 @@ function deleteRecord(id) {
   if (index === -1) return;
   state.records.splice(index, 1);
   persist();
+  deleteRecordFromCloud(id);
   renderAll();
   toast("已删除");
 }
@@ -584,26 +641,260 @@ function saveSettings(event) {
   state.settings.monthlyBudget = Number(els.monthlyBudget.value || 0);
   state.settings.currency = els.currency.value;
   persist();
+  saveCloudSettings();
   renderAll();
   toast("设置已保存");
 }
 
+async function saveFirebaseSettings(event) {
+  event.preventDefault();
+  state.settings.firebaseConfigText = els.firebaseConfig.value.trim();
+  persist();
+  if (!state.settings.firebaseConfigText) {
+    setFirebaseStatus("未连接", "");
+    toast("Firebase 配置为空");
+    return;
+  }
+  await initFirebaseFromSaved(true);
+  toast("Firebase 配置已保存");
+}
+
+async function initFirebaseFromSaved(force = false) {
+  if (!state.settings.firebaseConfigText) return;
+  if (firebaseState.initializing) return;
+  if (firebaseState.ready && !force) return;
+
+  firebaseState.initializing = true;
+  setFirebaseStatus("连接中", "warning");
+  try {
+    const config = parseFirebaseConfig(state.settings.firebaseConfigText);
+    firebaseState.modules = await loadFirebaseModules();
+    const {
+      initializeApp,
+      getApps,
+      getAuth,
+      browserLocalPersistence,
+      setPersistence,
+      onAuthStateChanged,
+      getFirestore
+    } = firebaseState.modules;
+
+    firebaseState.app = getApps().length ? getApps()[0] : initializeApp(config);
+    firebaseState.auth = getAuth(firebaseState.app);
+    firebaseState.db = getFirestore(firebaseState.app);
+    await setPersistence(firebaseState.auth, browserLocalPersistence);
+    firebaseState.ready = true;
+
+    if (firebaseState.unsubAuth) {
+      firebaseState.unsubAuth();
+    }
+    firebaseState.unsubAuth = onAuthStateChanged(firebaseState.auth, async (user) => {
+      firebaseState.user = user;
+      if (user) {
+        setFirebaseStatus("已登录", "");
+        await migrateLocalRecordsToCloud();
+        await saveCloudSettings();
+        listenCloudRecords();
+        toast("Firebase 已连接");
+      } else {
+        stopCloudListener();
+        setFirebaseStatus("未登录", "warning");
+      }
+    });
+  } catch (error) {
+    console.warn(error);
+    firebaseState.ready = false;
+    setFirebaseStatus("连接失败", "warning");
+    toast(`Firebase 配置有问题：${error.message}`);
+  } finally {
+    firebaseState.initializing = false;
+  }
+}
+
+async function loadFirebaseModules() {
+  if (firebaseState.modules) return firebaseState.modules;
+  const [appModule, authModule, firestoreModule] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js")
+  ]);
+  return { ...appModule, ...authModule, ...firestoreModule };
+}
+
+async function signInFirebase() {
+  if (!firebaseState.ready) {
+    await initFirebaseFromSaved(true);
+  }
+  if (!firebaseState.auth) {
+    toast("请先保存 Firebase 配置");
+    return;
+  }
+  try {
+    const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = firebaseState.modules;
+    const provider = new GoogleAuthProvider();
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      await signInWithRedirect(firebaseState.auth, provider);
+    } else {
+      await signInWithPopup(firebaseState.auth, provider);
+    }
+  } catch (error) {
+    console.warn(error);
+    toast(`登录失败：${error.message}`);
+  }
+}
+
+async function signOutFirebase() {
+  if (!firebaseState.auth) return;
+  await firebaseState.modules.signOut(firebaseState.auth);
+  toast("已退出 Firebase");
+}
+
+function listenCloudRecords() {
+  if (!firebaseState.user || !firebaseState.db) return;
+  stopCloudListener();
+  const { collection, onSnapshot } = firebaseState.modules;
+  const recordsRef = collection(firebaseState.db, "users", firebaseState.user.uid, "records");
+  firebaseState.unsubRecords = onSnapshot(recordsRef, (snapshot) => {
+    state.records = snapshot.docs.map((docSnap) => normalizeCloudRecord(docSnap.id, docSnap.data()));
+    persist();
+    renderAll();
+  }, (error) => {
+    console.warn(error);
+    toast(`云端读取失败：${error.message}`);
+  });
+}
+
+function stopCloudListener() {
+  if (firebaseState.unsubRecords) {
+    firebaseState.unsubRecords();
+    firebaseState.unsubRecords = null;
+  }
+}
+
+async function migrateLocalRecordsToCloud() {
+  if (!state.records.length) return;
+  await saveRecordsToCloud(state.records, false);
+}
+
+async function saveRecordsToCloud(records, showMessage = true) {
+  if (!firebaseState.user || !firebaseState.db || !records?.length) return;
+  try {
+    const { doc, setDoc } = firebaseState.modules;
+    await Promise.all(records.map((record) => {
+      const id = record.id || createId();
+      record.id = id;
+      return setDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "records", id), {
+        ...record,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    }));
+    if (showMessage) setFirebaseStatus("已同步", "");
+  } catch (error) {
+    console.warn(error);
+    setFirebaseStatus("同步失败", "warning");
+    toast(`云端同步失败：${error.message}`);
+  }
+}
+
+async function deleteRecordFromCloud(id) {
+  if (!firebaseState.user || !firebaseState.db || !id) return;
+  try {
+    const { doc, deleteDoc } = firebaseState.modules;
+    await deleteDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "records", id));
+    setFirebaseStatus("已同步", "");
+  } catch (error) {
+    console.warn(error);
+    toast(`云端删除失败：${error.message}`);
+  }
+}
+
+async function syncAllRecordsToCloud() {
+  if (!firebaseState.user) {
+    toast("请先登录 Firebase");
+    return;
+  }
+  await saveRecordsToCloud(state.records);
+  await saveCloudSettings();
+  toast("全部记录已同步到 Firebase");
+}
+
+async function saveCloudSettings() {
+  if (!firebaseState.user || !firebaseState.db) return;
+  try {
+    const { doc, setDoc } = firebaseState.modules;
+    await setDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "meta", "settings"), {
+      monthlyBudget: Number(state.settings.monthlyBudget || 0),
+      currency: state.settings.currency,
+      deepseekModel: state.settings.deepseekModel,
+      deepseekEndpoint: state.settings.deepseekEndpoint,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function parseFirebaseConfig(input) {
+  const trimmed = input.trim();
+  const match = trimmed.match(/firebaseConfig\s*=\s*({[\s\S]*?});?/) || trimmed.match(/({[\s\S]*})/);
+  if (!match) {
+    throw new Error("没有找到 firebaseConfig 对象");
+  }
+  const config = Function(`"use strict"; return (${match[1]});`)();
+  if (!config.apiKey || !config.projectId || !config.authDomain) {
+    throw new Error("配置里需要 apiKey、authDomain、projectId");
+  }
+  return config;
+}
+
+function normalizeCloudRecord(id, data) {
+  return {
+    id,
+    date: isValidDate(data.date) ? data.date : formatDate(new Date()),
+    title: String(data.title || "未命名开销"),
+    amount: Number(data.amount || 0),
+    category: CATEGORY_NAMES.includes(data.category) ? data.category : "其他",
+    note: String(data.note || ""),
+    essential: Boolean(data.essential),
+    source: data.source || "cloud",
+    createdAt: data.createdAt || data.updatedAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || ""
+  };
+}
+
+function setFirebaseStatus(text, variant) {
+  els.firebaseStatus.textContent = text;
+  els.firebaseStatus.classList.toggle("warning", variant === "warning");
+}
+
 function saveApiSettings(event) {
   event.preventDefault();
-  state.settings.deepseekKey = els.deepseekKey.value.trim();
-  state.settings.deepseekModel = els.deepseekModel.value;
-  state.settings.deepseekEndpoint = els.deepseekEndpoint.value.trim() || DEFAULT_STATE.settings.deepseekEndpoint;
+  const fromQuickForm = event.target.id === "quick-api-form";
+  state.settings.deepseekKey = (fromQuickForm ? els.quickDeepseekKey : els.deepseekKey).value.trim();
+  state.settings.deepseekModel = (fromQuickForm ? els.quickDeepseekModel : els.deepseekModel).value;
+  state.settings.deepseekEndpoint = (fromQuickForm ? els.quickDeepseekEndpoint : els.deepseekEndpoint).value.trim() || DEFAULT_STATE.settings.deepseekEndpoint;
   persist();
+  syncApiControls();
+  saveCloudSettings();
   renderAll();
   toast(state.settings.deepseekKey ? "DeepSeek API 已保存" : "未填写 key，将使用离线分析");
 }
 
 function forgetApiKey() {
   state.settings.deepseekKey = "";
-  els.deepseekKey.value = "";
   persist();
+  syncApiControls();
   renderAll();
   toast("API key 已清除");
+}
+
+function syncApiControls() {
+  els.deepseekKey.value = state.settings.deepseekKey || "";
+  els.deepseekModel.value = state.settings.deepseekModel;
+  els.deepseekEndpoint.value = state.settings.deepseekEndpoint;
+  els.quickDeepseekKey.value = state.settings.deepseekKey || "";
+  els.quickDeepseekModel.value = state.settings.deepseekModel;
+  els.quickDeepseekEndpoint.value = state.settings.deepseekEndpoint;
 }
 
 function exportCsv() {
@@ -620,6 +911,7 @@ function importCsv(event) {
     const imported = parseCsv(String(reader.result || ""));
     state.records.push(...imported);
     persist();
+    saveRecordsToCloud(imported);
     renderAll();
     toast(`已导入 ${imported.length} 笔记录`);
     event.target.value = "";
@@ -628,12 +920,28 @@ function importCsv(event) {
 }
 
 function exportJson() {
-  downloadFile(`spend-save-backup-${formatDate(new Date())}.json`, JSON.stringify(state, null, 2), "application/json;charset=utf-8");
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    source: firebaseState.user ? "firebase" : "localStorage",
+    user: firebaseState.user ? {
+      uid: firebaseState.user.uid,
+      email: firebaseState.user.email || ""
+    } : null,
+    records: state.records,
+    settings: {
+      monthlyBudget: state.settings.monthlyBudget,
+      currency: state.settings.currency,
+      deepseekModel: state.settings.deepseekModel,
+      deepseekEndpoint: state.settings.deepseekEndpoint
+    }
+  };
+  downloadFile(`spend-save-all-history-${formatDate(new Date())}.json`, JSON.stringify(exportData, null, 2), "application/json;charset=utf-8");
 }
 
 function addSampleData() {
   if (state.records.length && !confirm("添加示例数据会混在当前记录里，继续吗？")) return;
   const today = new Date();
+  const newSamples = [];
   const samples = [
     ["午饭", 36, "餐饮", true, 0],
     ["打车去客户那里", 42, "交通", true, 0],
@@ -647,7 +955,7 @@ function addSampleData() {
   samples.forEach(([title, amount, category, essential, offset]) => {
     const date = new Date(today);
     date.setDate(date.getDate() + offset);
-    state.records.push({
+    newSamples.push({
       id: createId(),
       date: formatDate(date),
       title,
@@ -659,7 +967,9 @@ function addSampleData() {
       createdAt: new Date().toISOString()
     });
   });
+  state.records.push(...newSamples);
   persist();
+  saveRecordsToCloud(newSamples);
   renderAll();
   toast("示例数据已添加");
 }

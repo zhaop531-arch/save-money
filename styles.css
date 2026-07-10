@@ -46,6 +46,11 @@ label.upload-button {
   min-height: 100vh;
 }
 
+.mobile-menu-button,
+.sidebar-backdrop {
+  display: none;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -566,28 +571,76 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .mobile-menu-button {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 31;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 10px 28px rgba(31, 51, 43, 0.14);
+  }
+
   .sidebar {
-    position: sticky;
+    position: fixed;
     top: 0;
-    z-index: 5;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 16px;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: min(82vw, 300px);
+    padding: 24px 18px;
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    box-shadow: 18px 0 48px rgba(16, 35, 31, 0.24);
+  }
+
+  body.sidebar-open {
+    overflow: hidden;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: block;
+    background: rgba(12, 23, 20, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  body.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .nav-tabs {
-    display: flex;
-    overflow-x: auto;
+    display: grid;
+    overflow: visible;
   }
 
   .nav-tab {
-    width: auto;
-    min-width: 110px;
+    width: 100%;
+    min-width: 0;
   }
 
   .sidebar-footer {
-    display: none;
+    display: grid;
+  }
+
+  .main {
+    padding-top: 78px;
   }
 
   .metrics-grid,
@@ -600,7 +653,16 @@ label {
 
 @media (max-width: 760px) {
   .main {
-    padding: 18px 14px 28px;
+    padding: 78px 12px 28px;
+  }
+
+  .topbar h2 {
+    font-size: 26px;
+  }
+
+  .panel,
+  .metric {
+    padding: 15px;
   }
 
   .topbar,
@@ -611,8 +673,25 @@ label {
 
   .primary-button,
   .secondary-button,
-  .upload-button {
+  .upload-button,
+  .ghost-button {
     width: 100%;
+    min-height: 46px;
+  }
+
+  textarea {
+    min-height: 210px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  input,
+  select {
+    min-height: 46px;
   }
 
   .metrics-grid,
@@ -655,5 +734,11 @@ label {
 
   .toolbar label {
     min-width: 100%;
+  }
+
+  .toast {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
   }
 }

@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <button class="mobile-menu-button" type="button" id="mobile-menu-button" aria-label="打开菜单" aria-expanded="false">
+      <span data-icon="menu"></span>
+    </button>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
@@ -44,6 +47,7 @@
           </button>
         </div>
       </aside>
+      <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
       <main class="main">
         <section class="topbar">
@@ -137,6 +141,39 @@
               <p class="subtle">填入 DeepSeek API key 后会优先使用 AI 分析；没有 key 时会用本地规则识别金额和分类。</p>
             </article>
 
+            <article class="panel quick-api-panel">
+              <div class="panel-heading">
+                <h3>DeepSeek API</h3>
+                <span class="pill warning">本机保存</span>
+              </div>
+              <form id="quick-api-form" class="form-grid">
+                <label class="wide">
+                  API Key
+                  <input type="password" id="quick-deepseek-key" placeholder="sk-..." autocomplete="off" />
+                </label>
+                <label>
+                  模型
+                  <select id="quick-deepseek-model">
+                    <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                    <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                  </select>
+                </label>
+                <label>
+                  API 地址
+                  <input type="url" id="quick-deepseek-endpoint" placeholder="https://api.deepseek.com/chat/completions" />
+                </label>
+                <button class="primary-button" type="submit">
+                  <span data-icon="plug"></span>
+                  保存 API
+                </button>
+                <button class="secondary-button" type="button" id="quick-forget-key">
+                  <span data-icon="key-round"></span>
+                  清除 key
+                </button>
+              </form>
+              <p class="subtle">手机端也可以在这里填 DeepSeek key。记账数据和 key 都只保存在当前手机浏览器。</p>
+            </article>
+
             <article class="panel">
               <div class="panel-heading">
                 <h3>手动新增</h3>
@@ -202,6 +239,10 @@
                 <span data-icon="file-down"></span>
                 导出 CSV
               </button>
+              <button class="secondary-button" type="button" id="export-all-json">
+                <span data-icon="database-backup"></span>
+                导出全部 JSON
+              </button>
               <label class="upload-button">
                 <span data-icon="file-up"></span>
                 导入 CSV
@@ -243,6 +284,36 @@
 
             <article class="panel">
               <div class="panel-heading">
+                <h3>Firebase 云端同步</h3>
+                <span class="pill" id="firebase-status">未连接</span>
+              </div>
+              <form id="firebase-form" class="form-grid">
+                <label class="wide">
+                  Firebase Web 配置
+                  <textarea id="firebase-config" rows="7" placeholder='粘贴 Firebase 控制台里的 firebaseConfig，例如：&#10;const firebaseConfig = {&#10;  apiKey: "...",&#10;  authDomain: "...",&#10;  projectId: "money-save-79902"&#10;};'></textarea>
+                </label>
+                <button class="primary-button" type="submit">
+                  <span data-icon="cloud"></span>
+                  保存 Firebase
+                </button>
+                <button class="secondary-button" type="button" id="firebase-sign-in">
+                  <span data-icon="log-in"></span>
+                  Google 登录
+                </button>
+                <button class="secondary-button" type="button" id="firebase-sync-now">
+                  <span data-icon="refresh-cw"></span>
+                  立即同步
+                </button>
+                <button class="secondary-button" type="button" id="firebase-sign-out">
+                  <span data-icon="log-out"></span>
+                  退出登录
+                </button>
+              </form>
+              <p class="subtle">登录后，开销记录会保存在 Firebase Firestore。手机和电脑登录同一个 Google 账号，就能读取同一份历史数据。</p>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
                 <h3>DeepSeek API</h3>
                 <span class="pill warning">静态网页会暴露浏览器里的 key</span>
               </div>
@@ -274,6 +345,12 @@
               <p class="subtle">如果你之后需要真正保护 API key，可以把同一套前端接到 Cloudflare Worker、Vercel Function 或自己的后端代理。</p>
             </article>
           </div>
+          <article class="panel">
+            <div class="panel-heading">
+              <h3>数据保存位置</h3>
+            </div>
+            <p class="subtle">连接 Firebase 并登录后，开销记录保存在 Firestore；未登录时会先保存在当前浏览器 localStorage。DeepSeek API key 只保存在当前浏览器，保存一次后下次打开会自动填回。</p>
+          </article>
         </section>
       </main>
     </div>
