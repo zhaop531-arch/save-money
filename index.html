@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>花钱省钱账本</title>
-    <link rel="stylesheet" href="styles.css?v=20260710-1808" />
+    <link rel="stylesheet" href="styles.css?v=20260710-1826" />
   </head>
   <body>
     <button class="mobile-menu-button" type="button" id="mobile-menu-button" aria-label="打开菜单" aria-expanded="false">
@@ -290,7 +290,7 @@
               <form id="firebase-form" class="form-grid">
                 <label class="wide">
                   Firebase Web 配置
-                  <textarea id="firebase-config" rows="7" placeholder="已内置 money-save-79902 的 Firebase 配置；如果换项目，再粘贴新的 firebaseConfig。"></textarea>
+                  <textarea id="firebase-config" rows="7" placeholder='从 Firebase 控制台复制完整 Web SDK 配置，粘贴一次保存即可。例如：&#10;const firebaseConfig = {&#10;  apiKey: "...",&#10;  authDomain: "...",&#10;  projectId: "money-save-79902"&#10;};'></textarea>
                 </label>
                 <button class="primary-button" type="submit">
                   <span data-icon="cloud"></span>
@@ -309,7 +309,7 @@
                   退出登录
                 </button>
               </form>
-              <p class="subtle">Firebase 项目已内置为 money-save-79902。登录后，开销记录会保存在 Firestore；手机和电脑登录同一个 Google 账号，就能读取同一份历史数据。</p>
+              <p class="subtle">Firebase 配置保存后会留在当前浏览器。登录后，开销记录会保存在 Firestore；手机和电脑登录同一个 Google 账号，就能读取同一份历史数据。</p>
             </article>
 
             <article class="panel">
@@ -358,6 +358,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260710-1808"></script>
+    <script src="app.js?v=20260710-1826"></script>
   </body>
 </html>

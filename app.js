@@ -1,13 +1,5 @@
 const STORAGE_KEY = "spend-save-app-v1";
-const DEFAULT_FIREBASE_CONFIG_TEXT = `const firebaseConfig = {
-  apiKey: "AIzaSyAS4KX6dODphk3xd54GgI-T2idgMQGJMFE",
-  authDomain: "money-save-79902.firebaseapp.com",
-  projectId: "money-save-79902",
-  storageBucket: "money-save-79902.firebasestorage.app",
-  messagingSenderId: "532812496466",
-  appId: "1:532812496466:web:6e38159cad2cb13433298b",
-  measurementId: "G-EPMJQ67B5B"
-};`;
+const DEFAULT_FIREBASE_CONFIG_TEXT = "";
 const CATEGORY_NAMES = ["餐饮", "交通", "购物", "住房", "水电网", "医疗", "娱乐", "学习", "收入", "其他"];
 const CATEGORY_KEYWORDS = [
   ["餐饮", ["饭", "餐", "咖啡", "奶茶", "外卖", "早餐", "午饭", "晚饭", "吃", "超市", "菜", "水果", "饮料"]],
@@ -714,7 +706,7 @@ async function initFirebaseFromSaved(force = false) {
     console.warn(error);
     firebaseState.ready = false;
     setFirebaseStatus("连接失败", "warning");
-    toast(`Firebase 配置有问题：${error.message}`);
+    toast(firebaseErrorMessage(error));
   } finally {
     firebaseState.initializing = false;
   }
@@ -748,7 +740,7 @@ async function signInFirebase() {
     }
   } catch (error) {
     console.warn(error);
-    toast(`登录失败：${error.message}`);
+    toast(firebaseErrorMessage(error));
   }
 }
 
@@ -874,6 +866,20 @@ function normalizeCloudRecord(id, data) {
 function setFirebaseStatus(text, variant) {
   els.firebaseStatus.textContent = text;
   els.firebaseStatus.classList.toggle("warning", variant === "warning");
+}
+
+function firebaseErrorMessage(error) {
+  const message = error?.message || String(error);
+  if (message.includes("auth/api-key-not-valid")) {
+    return "Firebase apiKey 不正确。请从 Firebase 控制台复制完整 Web SDK 配置，粘贴后点保存 Firebase。";
+  }
+  if (message.includes("auth/unauthorized-domain")) {
+    return "当前网站域名未授权。请在 Firebase Authentication 的授权网域加入 zhaop531-arch.github.io。";
+  }
+  if (message.includes("auth/popup-blocked")) {
+    return "浏览器拦截了登录弹窗，请允许弹窗后再点 Google 登录。";
+  }
+  return `Firebase 错误：${message}`;
 }
 
 function saveApiSettings(event) {

@@ -17,12 +17,13 @@
 
 ## Firebase 云端同步
 
-当前代码已经内置 Firebase 项目 `money-save-79902` 的 Web 配置。Firebase 控制台还需要完成这些步骤：
+Firebase 配置需要从控制台复制一次，粘贴到网页的“设置” -> “Firebase 云端同步”里保存。Firebase 控制台还需要完成这些步骤：
 
-1. 在 Firebase 控制台启用 Authentication，登录方式选择 Google。
-2. 在 Authentication 的授权网域里加入你的 GitHub Pages 域名，例如 `zhaop531-arch.github.io`。
-3. 在 Firestore Database 里创建数据库。
-4. Firestore 规则建议使用：
+1. 在项目设置里找到 Web 应用，复制完整 `firebaseConfig`。
+2. 在 Firebase 控制台启用 Authentication，登录方式选择 Google。
+3. 在 Authentication 的授权网域里加入你的 GitHub Pages 域名，例如 `zhaop531-arch.github.io`。
+4. 在 Firestore Database 里创建数据库。
+5. Firestore 规则建议使用：
 
 ```txt
 rules_version = '2';
