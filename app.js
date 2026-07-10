@@ -1,4 +1,13 @@
 const STORAGE_KEY = "spend-save-app-v1";
+const DEFAULT_FIREBASE_CONFIG_TEXT = `const firebaseConfig = {
+  apiKey: "AIzaSyAS4KX6dODphk3xd54GgI-T2idgMQGJMFE",
+  authDomain: "money-save-79902.firebaseapp.com",
+  projectId: "money-save-79902",
+  storageBucket: "money-save-79902.firebasestorage.app",
+  messagingSenderId: "532812496466",
+  appId: "1:532812496466:web:6e38159cad2cb13433298b",
+  measurementId: "G-EPMJQ67B5B"
+};`;
 const CATEGORY_NAMES = ["餐饮", "交通", "购物", "住房", "水电网", "医疗", "娱乐", "学习", "收入", "其他"];
 const CATEGORY_KEYWORDS = [
   ["餐饮", ["饭", "餐", "咖啡", "奶茶", "外卖", "早餐", "午饭", "晚饭", "吃", "超市", "菜", "水果", "饮料"]],
@@ -20,7 +29,7 @@ const DEFAULT_STATE = {
     deepseekKey: "",
     deepseekModel: "deepseek-v4-flash",
     deepseekEndpoint: "https://api.deepseek.com/chat/completions",
-    firebaseConfigText: ""
+    firebaseConfigText: DEFAULT_FIREBASE_CONFIG_TEXT
   }
 };
 
@@ -1068,10 +1077,14 @@ function loadState() {
 }
 
 function mergeState(base, saved) {
-  return {
+  const merged = {
     records: Array.isArray(saved.records) ? saved.records : [],
     settings: { ...base.settings, ...(saved.settings || {}) }
   };
+  if (!merged.settings.firebaseConfigText) {
+    merged.settings.firebaseConfigText = DEFAULT_FIREBASE_CONFIG_TEXT;
+  }
+  return merged;
 }
 
 function persist() {
