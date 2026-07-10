@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>花钱省钱账本</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">钱</div>
+          <div>
+            <h1>花钱省钱</h1>
+            <p>记录开销，找出能省的钱</p>
+          </div>
+        </div>
+
+        <nav class="nav-tabs" aria-label="主要功能">
+          <button class="nav-tab active" type="button" data-tab="dashboard" title="总览">
+            <span data-icon="layout-dashboard"></span>
+            <span>总览</span>
+          </button>
+          <button class="nav-tab" type="button" data-tab="capture" title="记一笔">
+            <span data-icon="pen-line"></span>
+            <span>记一笔</span>
+          </button>
+          <button class="nav-tab" type="button" data-tab="records" title="明细">
+            <span data-icon="list-checks"></span>
+            <span>明细</span>
+          </button>
+          <button class="nav-tab" type="button" data-tab="settings" title="设置">
+            <span data-icon="settings"></span>
+            <span>设置</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>数据只保存在这台浏览器。</p>
+          <button class="ghost-button" type="button" id="export-json">
+            <span data-icon="download"></span>
+            备份 JSON
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div>
+            <p class="eyebrow">个人开销助手</p>
+            <h2 id="page-title">总览</h2>
+          </div>
+          <div class="quick-actions">
+            <button class="secondary-button" type="button" id="sample-data">
+              <span data-icon="sparkles"></span>
+              示例数据
+            </button>
+            <button class="primary-button" type="button" data-go-tab="capture">
+              <span data-icon="plus"></span>
+              新增开销
+            </button>
+          </div>
+        </section>
+
+        <section class="tab-panel active" id="dashboard-panel">
+          <div class="metrics-grid">
+            <article class="metric">
+              <p>本月花费</p>
+              <strong id="month-spend">0</strong>
+              <span id="month-count">0 笔记录</span>
+            </article>
+            <article class="metric">
+              <p>预算剩余</p>
+              <strong id="budget-left">0</strong>
+              <span id="budget-status">还没有设置月预算</span>
+            </article>
+            <article class="metric">
+              <p>预计月底</p>
+              <strong id="projected-spend">0</strong>
+              <span id="projected-status">按目前节奏估算</span>
+            </article>
+            <article class="metric">
+              <p>可优化开销</p>
+              <strong id="optional-spend">0</strong>
+              <span id="optional-status">非必要支出合计</span>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>分类花费</h3>
+                <span id="current-month-label"></span>
+              </div>
+              <div class="category-bars" id="category-bars"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>省钱建议</h3>
+                <button class="icon-button" type="button" id="refresh-tips" title="刷新建议">
+                  <span data-icon="refresh-cw"></span>
+                </button>
+              </div>
+              <div class="tips-list" id="tips-list"></div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <h3>最近开销</h3>
+              <button class="text-button" type="button" data-go-tab="records">查看全部</button>
+            </div>
+            <div class="record-list compact" id="recent-records"></div>
+          </article>
+        </section>
+
+        <section class="tab-panel" id="capture-panel">
+          <div class="capture-grid">
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>自然语言记账</h3>
+                <span class="pill" id="ai-status">离线分析可用</span>
+              </div>
+              <textarea id="expense-input" rows="7" placeholder="例如：今天午饭 35，打车 18，晚上买咖啡 22；昨天超市买菜 128。"></textarea>
+              <div class="capture-actions">
+                <button class="primary-button" type="button" id="analyze-input">
+                  <span data-icon="wand-sparkles"></span>
+                  分析输入
+                </button>
+                <button class="secondary-button" type="button" id="clear-input">
+                  <span data-icon="eraser"></span>
+                  清空
+                </button>
+              </div>
+              <p class="subtle">填入 DeepSeek API key 后会优先使用 AI 分析；没有 key 时会用本地规则识别金额和分类。</p>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>手动新增</h3>
+              </div>
+              <form id="manual-form" class="form-grid">
+                <label>
+                  日期
+                  <input type="date" id="manual-date" required />
+                </label>
+                <label>
+                  金额
+                  <input type="number" id="manual-amount" min="0.01" step="0.01" placeholder="35" required />
+                </label>
+                <label>
+                  分类
+                  <select id="manual-category"></select>
+                </label>
+                <label>
+                  名称
+                  <input type="text" id="manual-title" placeholder="午饭 / 打车 / 房租" required />
+                </label>
+                <label class="wide">
+                  备注
+                  <input type="text" id="manual-note" placeholder="可选" />
+                </label>
+                <label class="check-row wide">
+                  <input type="checkbox" id="manual-essential" />
+                  必要支出
+                </label>
+                <button class="primary-button wide" type="submit">
+                  <span data-icon="save"></span>
+                  保存这一笔
+                </button>
+              </form>
+            </article>
+          </div>
+
+          <article class="panel" id="analysis-panel" hidden>
+            <div class="panel-heading">
+              <h3>识别结果</h3>
+              <button class="secondary-button" type="button" id="save-analysis">
+                <span data-icon="check"></span>
+                保存选中记录
+              </button>
+            </div>
+            <div id="analysis-summary" class="analysis-summary"></div>
+            <div class="analysis-table" id="analysis-results"></div>
+          </article>
+        </section>
+
+        <section class="tab-panel" id="records-panel">
+          <article class="panel">
+            <div class="toolbar">
+              <label>
+                月份
+                <input type="month" id="filter-month" />
+              </label>
+              <label>
+                搜索
+                <input type="search" id="search-records" placeholder="名称、分类、备注" />
+              </label>
+              <button class="secondary-button" type="button" id="export-csv">
+                <span data-icon="file-down"></span>
+                导出 CSV
+              </button>
+              <label class="upload-button">
+                <span data-icon="file-up"></span>
+                导入 CSV
+                <input type="file" id="import-csv" accept=".csv,text/csv" />
+              </label>
+            </div>
+            <div class="record-list" id="records-list"></div>
+          </article>
+        </section>
+
+        <section class="tab-panel" id="settings-panel">
+          <div class="settings-grid">
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>预算和币种</h3>
+              </div>
+              <form id="settings-form" class="form-grid">
+                <label>
+                  月预算
+                  <input type="number" id="monthly-budget" min="0" step="0.01" placeholder="5000" />
+                </label>
+                <label>
+                  币种
+                  <select id="currency">
+                    <option value="CNY">CNY ¥</option>
+                    <option value="IDR">IDR Rp</option>
+                    <option value="USD">USD $</option>
+                    <option value="SGD">SGD $</option>
+                    <option value="MYR">MYR RM</option>
+                    <option value="THB">THB ฿</option>
+                  </select>
+                </label>
+                <button class="primary-button wide" type="submit">
+                  <span data-icon="save"></span>
+                  保存设置
+                </button>
+              </form>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>DeepSeek API</h3>
+                <span class="pill warning">静态网页会暴露浏览器里的 key</span>
+              </div>
+              <form id="api-form" class="form-grid">
+                <label class="wide">
+                  API Key
+                  <input type="password" id="deepseek-key" placeholder="sk-..." autocomplete="off" />
+                </label>
+                <label>
+                  模型
+                  <select id="deepseek-model">
+                    <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                    <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                  </select>
+                </label>
+                <label>
+                  API 地址
+                  <input type="url" id="deepseek-endpoint" placeholder="https://api.deepseek.com/chat/completions" />
+                </label>
+                <button class="primary-button" type="submit">
+                  <span data-icon="plug"></span>
+                  保存 API 设置
+                </button>
+                <button class="secondary-button" type="button" id="forget-key">
+                  <span data-icon="key-round"></span>
+                  清除 key
+                </button>
+              </form>
+              <p class="subtle">如果你之后需要真正保护 API key，可以把同一套前端接到 Cloudflare Worker、Vercel Function 或自己的后端代理。</p>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
