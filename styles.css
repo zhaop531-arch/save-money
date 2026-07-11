@@ -377,6 +377,37 @@ label.upload-button {
   line-height: 1.45;
 }
 
+.insight-grid,
+.rates-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.insight-item,
+.rate-item {
+  display: grid;
+  gap: 6px;
+  min-height: 84px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.insight-item span,
+.rate-item span,
+.insight-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.insight-item strong,
+.rate-item strong {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
 .record-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -409,6 +440,10 @@ label.upload-button {
 
 .record-amount {
   font-weight: 800;
+}
+
+.record-amount.income {
+  color: var(--primary);
 }
 
 .delete-record {
@@ -503,7 +538,7 @@ label {
 
 .analysis-row {
   display: grid;
-  grid-template-columns: 34px 1fr 120px 150px 130px;
+  grid-template-columns: 34px minmax(160px, 1fr) 110px 130px 100px 130px 130px;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -734,6 +769,11 @@ label {
 
   .toolbar label {
     min-width: 100%;
+  }
+
+  .insight-grid,
+  .rates-grid {
+    grid-template-columns: 1fr;
   }
 
   .toast {

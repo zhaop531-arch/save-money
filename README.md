@@ -5,8 +5,11 @@
 - 自然语言输入开销
 - DeepSeek API 分析输入
 - 离线规则分析，没填 API key 也能用
+- 自然语言识别币种，并统一折算成人民币
+- 自动更新汇率，失败时使用备用汇率
 - 本地浏览器保存数据
 - 月预算、分类统计、省钱建议
+- 收入/支出、结余、日均支出、最大一笔、外币记录分析
 - CSV 导入导出和 JSON 备份
 
 ## 使用方式
@@ -14,6 +17,22 @@
 直接打开 `index.html` 就能使用。未连接 Firebase 前，数据保存在浏览器 `localStorage`，换浏览器或清缓存会丢失。连接 Firebase 并登录后，开销记录会保存到 Firestore。
 
 手机端也是一样：登录同一个 Google 账号后，会读取同一个 Firebase 账号下的历史记录。DeepSeek API key 只保存在当前浏览器，保存一次后下次打开会自动填回，不会放进 JSON 导出文件。
+
+## 汇率换算
+
+应用会把所有记录统一折算成人民币保存到 `amount` 字段，同时保留：
+
+- `originalAmount`：原币金额
+- `originalCurrency`：原币种
+- `exchangeRateToCny`：保存时使用的换算汇率
+
+自然语言支持类似：
+
+```text
+今天午饭 35 元，打车 10 美元，超市 50000 印尼盾，咖啡 4.5 SGD
+```
+
+汇率使用 ExchangeRate-API Open Access 接口自动更新，页面会缓存汇率。网络失败时会使用内置备用汇率继续计算。
 
 ## Firebase 云端同步
 

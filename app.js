@@ -1,5 +1,33 @@
 const STORAGE_KEY = "spend-save-app-v1";
 const DEFAULT_FIREBASE_CONFIG_TEXT = "";
+const FALLBACK_RATES_CNY = {
+  CNY: 1,
+  USD: 0.139,
+  IDR: 2250,
+  SGD: 0.18,
+  MYR: 0.60,
+  THB: 4.55,
+  EUR: 0.128,
+  HKD: 1.09,
+  JPY: 22,
+  KRW: 190,
+  GBP: 0.11,
+  AUD: 0.21
+};
+const CURRENCY_OPTIONS = [
+  ["CNY", "人民币 ¥"],
+  ["USD", "美元 $"],
+  ["IDR", "印尼盾 Rp"],
+  ["SGD", "新币 S$"],
+  ["MYR", "马币 RM"],
+  ["THB", "泰铢 ฿"],
+  ["EUR", "欧元 €"],
+  ["HKD", "港币 HK$"],
+  ["JPY", "日元 ¥"],
+  ["KRW", "韩元 ₩"],
+  ["GBP", "英镑 £"],
+  ["AUD", "澳元 A$"]
+];
 const CATEGORY_NAMES = ["餐饮", "交通", "购物", "住房", "水电网", "医疗", "娱乐", "学习", "收入", "其他"];
 const CATEGORY_KEYWORDS = [
   ["餐饮", ["饭", "餐", "咖啡", "奶茶", "外卖", "早餐", "午饭", "晚饭", "吃", "超市", "菜", "水果", "饮料"]],
@@ -21,7 +49,10 @@ const DEFAULT_STATE = {
     deepseekKey: "",
     deepseekModel: "deepseek-v4-flash",
     deepseekEndpoint: "https://api.deepseek.com/chat/completions",
-    firebaseConfigText: DEFAULT_FIREBASE_CONFIG_TEXT
+    firebaseConfigText: DEFAULT_FIREBASE_CONFIG_TEXT,
+    exchangeRates: FALLBACK_RATES_CNY,
+    exchangeUpdatedAt: "",
+    autoRates: true
   }
 };
 
@@ -62,6 +93,8 @@ function bindElements() {
     "optional-spend",
     "optional-status",
     "current-month-label",
+    "rates-status",
+    "insight-grid",
     "category-bars",
     "tips-list",
     "recent-records",
@@ -72,6 +105,8 @@ function bindElements() {
     "manual-form",
     "manual-date",
     "manual-amount",
+    "manual-currency",
+    "manual-type",
     "manual-category",
     "manual-title",
     "manual-note",
@@ -92,6 +127,12 @@ function bindElements() {
     "settings-form",
     "monthly-budget",
     "currency",
+    "exchange-form",
+    "base-currency",
+    "auto-rates",
+    "exchange-status",
+    "show-rates",
+    "rates-grid",
     "firebase-form",
     "firebase-config",
     "firebase-status",
@@ -123,9 +164,19 @@ function hydrateControls() {
     option.textContent = category;
     els.manualCategory.appendChild(option);
   });
+  CURRENCY_OPTIONS.forEach(([code, label]) => {
+    const option = document.createElement("option");
+    option.value = code;
+    option.textContent = label;
+    els.manualCurrency.appendChild(option);
+  });
 
   els.monthlyBudget.value = state.settings.monthlyBudget || "";
   els.currency.value = state.settings.currency;
+  els.manualCurrency.value = "CNY";
+  els.baseCurrency.value = "CNY";
+  els.autoRates.checked = Boolean(state.settings.autoRates);
+  updateExchangeStatus();
   els.firebaseConfig.value = state.settings.firebaseConfigText || "";
   syncApiControls();
   els.aiStatus.textContent = state.settings.deepseekKey ? "DeepSeek 已启用" : "离线分析可用";
@@ -161,6 +212,17 @@ function bindEvents() {
   els.importCsv.addEventListener("change", importCsv);
   els.exportJson.addEventListener("click", exportJson);
   els.settingsForm.addEventListener("submit", saveSettings);
+  els.exchangeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.settings.autoRates = els.autoRates.checked;
+    persist();
+    await refreshExchangeRates(true);
+  });
+  els.autoRates.addEventListener("change", () => {
+    state.settings.autoRates = els.autoRates.checked;
+    persist();
+  });
+  els.showRates.addEventListener("click", renderRatesGrid);
   els.firebaseForm.addEventListener("submit", saveFirebaseSettings);
   els.firebaseSignIn.addEventListener("click", signInFirebase);
   els.firebaseSignOut.addEventListener("click", signOutFirebase);
@@ -176,6 +238,11 @@ function bindEvents() {
   });
 
   initFirebaseFromSaved();
+  if (state.settings.autoRates) {
+    refreshExchangeRates(false);
+  } else {
+    renderRatesGrid();
+  }
 }
 
 function setTodayDefaults() {
@@ -254,13 +321,15 @@ JSON 格式：
       "date": "YYYY-MM-DD",
       "title": "开销名称",
       "amount": 35.5,
+      "currency": "CNY|USD|IDR|SGD|MYR|THB|EUR|HKD|JPY|KRW|GBP|AUD",
+      "type": "expense|income",
       "category": "餐饮|交通|购物|住房|水电网|医疗|娱乐|学习|收入|其他",
       "note": "简短备注",
       "essential": true
     }
   ]
 }
-今天日期是 ${today}。不确定日期时用今天。不确定分类时用其他。金额必须是数字。只返回 JSON。`;
+今天日期是 ${today}。不确定日期时用今天。不确定分类时用其他。不确定币种时用 CNY。工资、奖金、报销、退款可识别为 income，其余默认 expense。金额必须是原币种数字，不要提前换算。只返回 JSON。`;
 
   const response = await fetch(state.settings.deepseekEndpoint, {
     method: "POST",
@@ -304,15 +373,21 @@ function analyzeLocally(text) {
   const entries = [];
   chunks.forEach((chunk) => {
     const cleanChunk = chunk.replace(/\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?/g, "");
-    const matches = [...cleanChunk.matchAll(/(?:¥|￥|RMB|CNY|Rp|IDR|\$|RM|฿)?\s*(\d+(?:\.\d{1,2})?)/gi)];
+    const matches = [...cleanChunk.matchAll(/(?:¥|￥|RMB|CNY|CN¥|Rp|IDR|USD|US\$|\$|SGD|S\$|MYR|RM|THB|฿|EUR|€|HKD|HK\$|JPY|日元|KRW|₩|GBP|£|AUD|A\$)?\s*(\d+(?:\.\d{1,2})?)\s*(?:元|人民币|美元|美金|刀|印尼盾|卢比|新币|新加坡元|马币|林吉特|泰铢|欧元|港币|日元|韩元|英镑|澳元)?/gi)];
     matches.forEach((match) => {
       const amount = Number(match[1]);
       if (!Number.isFinite(amount) || amount <= 0) return;
+      const currency = inferCurrency(`${match[0]} ${chunk}`);
+      const type = inferType(chunk);
       entries.push({
         id: createId(),
         date: inferDate(chunk, today),
         title: inferTitle(chunk, match[0]),
-        amount,
+        originalAmount: amount,
+        originalCurrency: currency,
+        amount: convertToCny(amount, currency),
+        exchangeRateToCny: getRateToCny(currency),
+        type,
         category: inferCategory(chunk),
         note: chunk,
         essential: inferEssential(chunk),
@@ -323,8 +398,8 @@ function analyzeLocally(text) {
 
   return {
     summary: entries.length
-      ? `本地识别到 ${entries.length} 笔记录，总额 ${formatMoney(sum(entries.map((entry) => entry.amount)))}。`
-      : "没有识别到金额，请试试写成“午饭 35，打车 18”。",
+      ? `本地识别到 ${entries.length} 笔记录，折合人民币 ${formatMoney(sum(entries.filter((entry) => entry.type !== "income").map((entry) => entry.amount)))}。`
+      : "没有识别到金额，请试试写成“午饭 35 元，打车 10 美元”。",
     entries
   };
 }
@@ -356,23 +431,56 @@ function inferCategory(text) {
   return hit ? hit[0] : "其他";
 }
 
+function inferCurrency(text) {
+  const lower = String(text).toLowerCase();
+  const rules = [
+    ["IDR", /rp|idr|印尼盾|卢比|rupiah/i],
+    ["SGD", /sgd|s\$|新币|新加坡元/i],
+    ["MYR", /myr|rm|马币|林吉特/i],
+    ["THB", /thb|฿|泰铢/i],
+    ["EUR", /eur|€|欧元/i],
+    ["HKD", /hkd|hk\$|港币/i],
+    ["JPY", /jpy|日元/i],
+    ["KRW", /krw|₩|韩元/i],
+    ["GBP", /gbp|£|英镑/i],
+    ["AUD", /aud|a\$|澳元/i],
+    ["USD", /usd|us\$|\$|美元|美金|刀/i],
+    ["CNY", /cny|rmb|人民币|￥|¥|元/i]
+  ];
+  return rules.find(([, pattern]) => pattern.test(lower))?.[0] || "CNY";
+}
+
+function inferType(text) {
+  return /收入|工资|奖金|报销|退款|返现|收款|转入/.test(text) ? "income" : "expense";
+}
+
 function inferEssential(text) {
   return /房租|租金|水费|电费|燃气|药|医院|学费|交通|公交|地铁|菜|超市|早餐|午饭|晚饭/.test(text);
 }
 
 function normalizeEntries(entries) {
   return entries
-    .map((entry) => ({
-      id: createId(),
-      date: isValidDate(entry.date) ? entry.date : formatDate(new Date()),
-      title: String(entry.title || "未命名开销").slice(0, 48),
-      amount: Math.abs(Number(entry.amount || 0)),
-      category: CATEGORY_NAMES.includes(entry.category) ? entry.category : inferCategory(`${entry.title || ""} ${entry.note || ""}`),
-      note: String(entry.note || "").slice(0, 120),
-      essential: Boolean(entry.essential),
-      source: entry.source || "deepseek",
-      createdAt: new Date().toISOString()
-    }))
+    .map((entry) => {
+      const originalCurrency = normalizeCurrency(entry.originalCurrency || entry.currency || inferCurrency(`${entry.title || ""} ${entry.note || ""}`));
+      const originalAmount = Math.abs(Number(entry.originalAmount ?? entry.amount ?? 0));
+      const amount = convertToCny(originalAmount, originalCurrency);
+      const type = entry.type === "income" || entry.category === "收入" ? "income" : "expense";
+      return {
+        id: createId(),
+        date: isValidDate(entry.date) ? entry.date : formatDate(new Date()),
+        title: String(entry.title || "未命名开销").slice(0, 48),
+        amount,
+        originalAmount,
+        originalCurrency,
+        exchangeRateToCny: getRateToCny(originalCurrency),
+        type,
+        category: type === "income" ? "收入" : (CATEGORY_NAMES.includes(entry.category) ? entry.category : inferCategory(`${entry.title || ""} ${entry.note || ""}`)),
+        note: String(entry.note || "").slice(0, 120),
+        essential: Boolean(entry.essential),
+        source: entry.source || "deepseek",
+        createdAt: new Date().toISOString()
+      };
+    })
     .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0);
 }
 
@@ -393,7 +501,9 @@ function renderAnalysis(summary) {
     row.innerHTML = `
       <input type="checkbox" checked aria-label="选择记录" />
       <input type="text" value="${escapeHtml(entry.title)}" aria-label="名称" />
-      <input type="number" min="0.01" step="0.01" value="${entry.amount}" aria-label="金额" />
+      <input type="number" min="0.01" step="0.01" value="${entry.originalAmount || entry.amount}" aria-label="原币金额" />
+      <select aria-label="币种">${CURRENCY_OPTIONS.map(([code, label]) => `<option value="${code}" ${code === entry.originalCurrency ? "selected" : ""}>${label}</option>`).join("")}</select>
+      <select aria-label="类型"><option value="expense" ${entry.type !== "income" ? "selected" : ""}>支出</option><option value="income" ${entry.type === "income" ? "selected" : ""}>收入</option></select>
       <select aria-label="分类">${CATEGORY_NAMES.map((category) => `<option value="${category}" ${category === entry.category ? "selected" : ""}>${category}</option>`).join("")}</select>
       <input type="date" value="${entry.date}" aria-label="日期" />
     `;
@@ -411,9 +521,13 @@ function saveSelectedAnalysis() {
       return {
         ...pendingAnalysis[index],
         title: controls[1].value.trim() || pendingAnalysis[index].title,
-        amount: Number(controls[2].value),
-        category: controls[3].value,
-        date: controls[4].value
+        originalAmount: Number(controls[2].value),
+        originalCurrency: controls[3].value,
+        amount: convertToCny(Number(controls[2].value), controls[3].value),
+        exchangeRateToCny: getRateToCny(controls[3].value),
+        type: controls[4].value,
+        category: controls[4].value === "income" ? "收入" : controls[5].value,
+        date: controls[6].value
       };
     })
     .filter((entry) => entry.amount > 0 && isValidDate(entry.date));
@@ -436,12 +550,19 @@ function saveSelectedAnalysis() {
 
 function saveManualRecord(event) {
   event.preventDefault();
+  const originalCurrency = els.manualCurrency.value;
+  const originalAmount = Number(els.manualAmount.value);
+  const type = els.manualType.value;
   const record = {
     id: createId(),
     date: els.manualDate.value,
     title: els.manualTitle.value.trim(),
-    amount: Number(els.manualAmount.value),
-    category: els.manualCategory.value,
+    amount: convertToCny(originalAmount, originalCurrency),
+    originalAmount,
+    originalCurrency,
+    exchangeRateToCny: getRateToCny(originalCurrency),
+    type,
+    category: type === "income" ? "收入" : els.manualCategory.value,
     note: els.manualNote.value.trim(),
     essential: els.manualEssential.checked,
     source: "manual",
@@ -458,8 +579,10 @@ function saveManualRecord(event) {
   saveRecordsToCloud([record]);
   event.target.reset();
   els.manualDate.value = formatDate(new Date());
+  els.manualCurrency.value = "CNY";
+  els.manualType.value = "expense";
   renderAll();
-  toast("已保存这一笔");
+  toast(`已保存，折合人民币 ${formatMoney(record.amount)}`);
 }
 
 function renderAll() {
@@ -471,14 +594,17 @@ function renderAll() {
 function renderDashboard() {
   const month = els.filterMonth.value || formatDate(new Date()).slice(0, 7);
   const records = recordsForMonth(month);
-  const total = sum(records.map((record) => record.amount));
+  const expenses = records.filter((record) => getRecordType(record) !== "income");
+  const income = records.filter((record) => getRecordType(record) === "income");
+  const total = sum(expenses.map((record) => record.amount));
+  const incomeTotal = sum(income.map((record) => record.amount));
   const budget = Number(state.settings.monthlyBudget || 0);
-  const optional = sum(records.filter((record) => !record.essential && record.category !== "收入").map((record) => record.amount));
-  const projected = projectMonthSpend(records, month);
+  const optional = sum(expenses.filter((record) => !record.essential).map((record) => record.amount));
+  const projected = projectMonthSpend(expenses, month);
 
   els.currentMonthLabel.textContent = month;
   els.monthSpend.textContent = formatMoney(total);
-  els.monthCount.textContent = `${records.length} 笔记录`;
+  els.monthCount.textContent = `${expenses.length} 笔支出，收入 ${formatMoney(incomeTotal)}`;
   els.budgetLeft.textContent = budget ? formatMoney(Math.max(budget - total, 0)) : formatMoney(0);
   els.budgetStatus.textContent = budget ? (total <= budget ? "预算内" : `已超 ${formatMoney(total - budget)}`) : "还没有设置月预算";
   els.projectedSpend.textContent = formatMoney(projected);
@@ -486,9 +612,11 @@ function renderDashboard() {
   els.optionalSpend.textContent = formatMoney(optional);
   els.optionalStatus.textContent = optional ? "非必要支出合计" : "暂时没有明显可优化项";
 
-  renderCategoryBars(records);
+  renderCategoryBars(expenses);
   renderTips();
   renderRecentRecords();
+  renderInsights(records, expenses, income, projected);
+  updateExchangeStatus();
 }
 
 function renderCategoryBars(records) {
@@ -520,6 +648,31 @@ function renderCategoryBars(records) {
   });
 }
 
+function renderInsights(records, expenses, income, projected) {
+  const spent = sum(expenses.map((record) => record.amount));
+  const earned = sum(income.map((record) => record.amount));
+  const net = earned - spent;
+  const biggest = [...expenses].sort((a, b) => b.amount - a.amount)[0];
+  const dailyAverage = spent / Math.max(new Date().getDate(), 1);
+  const foreignCount = records.filter((record) => normalizeCurrency(record.originalCurrency || "CNY") !== "CNY").length;
+  const items = [
+    ["本月收入", formatMoney(earned), income.length ? `${income.length} 笔收入` : "暂无收入记录"],
+    ["本月结余", formatMoney(net), net >= 0 ? "收入覆盖支出" : "支出高于收入"],
+    ["日均支出", formatMoney(dailyAverage), "按本月已过天数估算"],
+    ["最大一笔", biggest ? formatMoney(biggest.amount) : formatMoney(0), biggest ? biggest.title : "暂无支出"],
+    ["月底预计", formatMoney(projected), "只按支出节奏估算"],
+    ["外币记录", `${foreignCount} 笔`, "已自动折算成人民币"]
+  ];
+
+  els.insightGrid.innerHTML = items.map(([label, value, hint]) => `
+    <div class="insight-item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(hint)}</small>
+    </div>
+  `).join("");
+}
+
 function renderTips() {
   const month = els.filterMonth.value || formatDate(new Date()).slice(0, 7);
   const records = recordsForMonth(month);
@@ -534,14 +687,15 @@ function renderTips() {
 }
 
 function buildTips(records) {
-  if (!records.length) {
+  const expenses = records.filter((record) => getRecordType(record) !== "income");
+  if (!expenses.length) {
     return [
       { title: "先建立 7 天样本", body: "连续记录一周后，分类趋势会更准，省钱建议也会更具体。" },
       { title: "从高频小额开始", body: "咖啡、外卖、打车这类小额高频开销，通常最容易优化。" }
     ];
   }
 
-  const optionalRecords = records.filter((record) => !record.essential && record.category !== "收入");
+  const optionalRecords = expenses.filter((record) => !record.essential);
   const categoryTotals = CATEGORY_NAMES.map((category) => ({
     category,
     total: sum(optionalRecords.filter((record) => record.category === category).map((record) => record.amount))
@@ -549,8 +703,8 @@ function buildTips(records) {
 
   const top = categoryTotals[0];
   const budget = Number(state.settings.monthlyBudget || 0);
-  const total = sum(records.map((record) => record.amount));
-  const projected = projectMonthSpend(records, records[0]?.date?.slice(0, 7) || formatDate(new Date()).slice(0, 7));
+  const total = sum(expenses.map((record) => record.amount));
+  const projected = projectMonthSpend(expenses, records[0]?.date?.slice(0, 7) || formatDate(new Date()).slice(0, 7));
   const tips = [];
 
   if (top?.total > 0) {
@@ -572,7 +726,7 @@ function buildTips(records) {
     });
   }
 
-  const smallFrequent = optionalRecords.filter((record) => record.amount <= average(records.map((record) => record.amount)) || record.amount < 50);
+  const smallFrequent = optionalRecords.filter((record) => record.amount <= average(expenses.map((record) => record.amount)) || record.amount < 50);
   if (smallFrequent.length >= 3) {
     tips.push({
       title: "小额高频值得留意",
@@ -584,16 +738,16 @@ function buildTips(records) {
 }
 
 function renderRecentRecords() {
-  const records = [...state.records].sort((a, b) => `${b.date}${b.createdAt || ""}`.localeCompare(`${a.date}${a.createdAt || ""}`)).slice(0, 5);
+  const records = state.records.map(normalizeRecordShape).sort((a, b) => `${b.date}${b.createdAt || ""}`.localeCompare(`${a.date}${a.createdAt || ""}`)).slice(0, 5);
   renderRecordList(els.recentRecords, records, true);
 }
 
 function renderRecords() {
   const month = els.filterMonth.value;
   const keyword = els.searchRecords.value.trim().toLowerCase();
-  let records = month ? recordsForMonth(month) : [...state.records];
+  let records = month ? recordsForMonth(month) : state.records.map(normalizeRecordShape);
   if (keyword) {
-    records = records.filter((record) => [record.title, record.category, record.note, record.date].join(" ").toLowerCase().includes(keyword));
+    records = records.filter((record) => [record.title, record.category, record.note, record.date, record.originalCurrency, record.type].join(" ").toLowerCase().includes(keyword));
   }
   records.sort((a, b) => `${b.date}${b.createdAt || ""}`.localeCompare(`${a.date}${a.createdAt || ""}`));
   renderRecordList(els.recordsList, records, false);
@@ -608,14 +762,16 @@ function renderRecordList(container, records, compact) {
   }
 
   records.forEach((record) => {
+    const type = getRecordType(record);
+    const originalText = formatOriginalMoney(record);
     const item = document.createElement("div");
     item.className = "record-item";
     item.innerHTML = `
       <div class="record-main">
         <strong>${escapeHtml(record.title)}</strong>
-        <span>${record.date} · ${escapeHtml(record.category)}${record.essential ? " · 必要" : ""}</span>
+        <span>${record.date} · ${type === "income" ? "收入" : "支出"} · ${escapeHtml(record.category)}${record.essential ? " · 必要" : ""}${originalText ? ` · ${escapeHtml(originalText)}` : ""}</span>
       </div>
-      <div class="record-amount">${formatMoney(record.amount)}</div>
+      <div class="record-amount ${type === "income" ? "income" : ""}">${type === "income" ? "+" : "-"}${formatMoney(record.amount)}</div>
       ${compact ? "" : `<button class="delete-record" type="button" title="删除" data-id="${record.id}">${iconHtml("trash-2")}</button>`}
     `;
     container.appendChild(item);
@@ -640,7 +796,7 @@ function deleteRecord(id) {
 function saveSettings(event) {
   event.preventDefault();
   state.settings.monthlyBudget = Number(els.monthlyBudget.value || 0);
-  state.settings.currency = els.currency.value;
+  state.settings.currency = "CNY";
   persist();
   saveCloudSettings();
   renderAll();
@@ -782,6 +938,7 @@ async function saveRecordsToCloud(records, showMessage = true) {
   try {
     const { doc, setDoc } = firebaseState.modules;
     await Promise.all(records.map((record) => {
+      record = normalizeRecordShape(record);
       const id = record.id || createId();
       record.id = id;
       return setDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "records", id), {
@@ -826,6 +983,8 @@ async function saveCloudSettings() {
     await setDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "meta", "settings"), {
       monthlyBudget: Number(state.settings.monthlyBudget || 0),
       currency: state.settings.currency,
+      exchangeRates: state.settings.exchangeRates,
+      exchangeUpdatedAt: state.settings.exchangeUpdatedAt,
       deepseekModel: state.settings.deepseekModel,
       deepseekEndpoint: state.settings.deepseekEndpoint,
       updatedAt: new Date().toISOString()
@@ -849,18 +1008,22 @@ function parseFirebaseConfig(input) {
 }
 
 function normalizeCloudRecord(id, data) {
-  return {
+  return normalizeRecordShape({
     id,
     date: isValidDate(data.date) ? data.date : formatDate(new Date()),
     title: String(data.title || "未命名开销"),
     amount: Number(data.amount || 0),
+    originalAmount: Number(data.originalAmount || data.amount || 0),
+    originalCurrency: normalizeCurrency(data.originalCurrency || "CNY"),
+    exchangeRateToCny: Number(data.exchangeRateToCny || getRateToCny(data.originalCurrency || "CNY")),
+    type: data.type === "income" || data.category === "收入" ? "income" : "expense",
     category: CATEGORY_NAMES.includes(data.category) ? data.category : "其他",
     note: String(data.note || ""),
     essential: Boolean(data.essential),
     source: data.source || "cloud",
     createdAt: data.createdAt || data.updatedAt || new Date().toISOString(),
     updatedAt: data.updatedAt || ""
-  };
+  });
 }
 
 function setFirebaseStatus(text, variant) {
@@ -913,8 +1076,12 @@ function syncApiControls() {
 }
 
 function exportCsv() {
-  const headers = ["date", "title", "amount", "category", "essential", "note", "source"];
-  const rows = state.records.map((record) => headers.map((key) => csvCell(record[key])).join(","));
+  const headers = ["date", "title", "type", "originalAmount", "originalCurrency", "amountCny", "exchangeRateToCny", "category", "essential", "note", "source"];
+  const rows = state.records.map((record) => {
+    const normalized = normalizeRecordShape(record);
+    const row = { ...normalized, amountCny: normalized.amount };
+    return headers.map((key) => csvCell(row[key])).join(",");
+  });
   downloadFile(`spend-save-${formatDate(new Date())}.csv`, [headers.join(","), ...rows].join("\n"), "text/csv;charset=utf-8");
 }
 
@@ -942,10 +1109,12 @@ function exportJson() {
       uid: firebaseState.user.uid,
       email: firebaseState.user.email || ""
     } : null,
-    records: state.records,
+    records: state.records.map(normalizeRecordShape),
     settings: {
       monthlyBudget: state.settings.monthlyBudget,
       currency: state.settings.currency,
+      exchangeRates: state.settings.exchangeRates,
+      exchangeUpdatedAt: state.settings.exchangeUpdatedAt,
       deepseekModel: state.settings.deepseekModel,
       deepseekEndpoint: state.settings.deepseekEndpoint
     }
@@ -958,23 +1127,28 @@ function addSampleData() {
   const today = new Date();
   const newSamples = [];
   const samples = [
-    ["午饭", 36, "餐饮", true, 0],
-    ["打车去客户那里", 42, "交通", true, 0],
-    ["咖啡", 28, "餐饮", false, -1],
-    ["超市买菜", 156, "餐饮", true, -2],
-    ["电影票", 88, "娱乐", false, -3],
-    ["网费", 120, "水电网", true, -4],
-    ["衬衫", 239, "购物", false, -5]
+    ["午饭", 36, "CNY", "餐饮", true, 0],
+    ["打车去客户那里", 42, "CNY", "交通", true, 0],
+    ["咖啡", 4.5, "USD", "餐饮", false, -1],
+    ["超市买菜", 50000, "IDR", "餐饮", true, -2],
+    ["电影票", 88, "CNY", "娱乐", false, -3],
+    ["网费", 120, "CNY", "水电网", true, -4],
+    ["衬衫", 38, "SGD", "购物", false, -5],
+    ["工资", 8000, "CNY", "收入", true, -6]
   ];
 
-  samples.forEach(([title, amount, category, essential, offset]) => {
+  samples.forEach(([title, originalAmount, originalCurrency, category, essential, offset]) => {
     const date = new Date(today);
     date.setDate(date.getDate() + offset);
     newSamples.push({
       id: createId(),
       date: formatDate(date),
       title,
-      amount,
+      amount: convertToCny(originalAmount, originalCurrency),
+      originalAmount,
+      originalCurrency,
+      exchangeRateToCny: getRateToCny(originalCurrency),
+      type: category === "收入" ? "income" : "expense",
       category,
       essential,
       note: "示例数据",
@@ -990,7 +1164,140 @@ function addSampleData() {
 }
 
 function recordsForMonth(month) {
-  return state.records.filter((record) => record.date?.startsWith(month));
+  return state.records.map(normalizeRecordShape).filter((record) => record.date?.startsWith(month));
+}
+
+async function refreshExchangeRates(force) {
+  if (!force && !shouldRefreshRates()) {
+    updateExchangeStatus();
+    renderRatesGrid();
+    return;
+  }
+  setExchangeStatus("汇率更新中", "warning");
+  try {
+    const response = await fetch("https://open.er-api.com/v6/latest/CNY");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.result !== "success" || !data.rates?.USD) throw new Error("汇率接口返回异常");
+    state.settings.exchangeRates = { ...FALLBACK_RATES_CNY, ...pickRates(data.rates) };
+    state.settings.exchangeUpdatedAt = data.time_last_update_utc || new Date().toISOString();
+    persist();
+    saveCloudSettings();
+    renderAll();
+    renderRatesGrid();
+    setExchangeStatus("汇率已更新", "");
+    if (force) toast("汇率已更新，之后会自动折算成人民币");
+  } catch (error) {
+    console.warn(error);
+    state.settings.exchangeRates = { ...FALLBACK_RATES_CNY, ...(state.settings.exchangeRates || {}) };
+    persist();
+    renderRatesGrid();
+    setExchangeStatus("使用备用汇率", "warning");
+    if (force) toast("汇率更新失败，已使用备用汇率");
+  }
+}
+
+function shouldRefreshRates() {
+  if (!state.settings.exchangeUpdatedAt) return true;
+  const updated = new Date(state.settings.exchangeUpdatedAt).getTime();
+  if (Number.isNaN(updated)) return true;
+  return Date.now() - updated > 12 * 60 * 60 * 1000;
+}
+
+function pickRates(rates) {
+  return Object.fromEntries(CURRENCY_OPTIONS.map(([code]) => [code, Number(rates[code] || FALLBACK_RATES_CNY[code] || 1)]));
+}
+
+function renderRatesGrid() {
+  if (!els.ratesGrid) return;
+  const rates = currentRates();
+  els.ratesGrid.innerHTML = CURRENCY_OPTIONS
+    .filter(([code]) => code !== "CNY")
+    .map(([code, label]) => {
+      const toCny = getRateToCny(code);
+      return `<div class="rate-item"><span>${escapeHtml(label)}</span><strong>1 ${code} = ${formatMoney(toCny)}</strong></div>`;
+    })
+    .join("");
+  updateExchangeStatus();
+}
+
+function updateExchangeStatus() {
+  const text = state.settings.exchangeUpdatedAt
+    ? `汇率：${formatRateTime(state.settings.exchangeUpdatedAt)}`
+    : "备用汇率";
+  setExchangeStatus(text, state.settings.exchangeUpdatedAt ? "" : "warning");
+  if (els.ratesStatus) {
+    els.ratesStatus.textContent = text;
+    els.ratesStatus.classList.toggle("warning", !state.settings.exchangeUpdatedAt);
+  }
+}
+
+function setExchangeStatus(text, variant) {
+  if (!els.exchangeStatus) return;
+  els.exchangeStatus.textContent = text;
+  els.exchangeStatus.classList.toggle("warning", variant === "warning");
+}
+
+function currentRates() {
+  return { ...FALLBACK_RATES_CNY, ...(state.settings.exchangeRates || {}) };
+}
+
+function normalizeCurrency(currency) {
+  const code = String(currency || "CNY").toUpperCase();
+  return CURRENCY_OPTIONS.some(([item]) => item === code) ? code : "CNY";
+}
+
+function getRateToCny(currency) {
+  const code = normalizeCurrency(currency);
+  const rates = currentRates();
+  const ratePerCny = Number(rates[code] || 1);
+  return code === "CNY" ? 1 : 1 / ratePerCny;
+}
+
+function convertToCny(amount, currency) {
+  return roundMoney(Number(amount || 0) * getRateToCny(currency));
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function getRecordType(record) {
+  return record.type === "income" || record.category === "收入" ? "income" : "expense";
+}
+
+function normalizeRecordShape(record) {
+  const originalCurrency = normalizeCurrency(record.originalCurrency || record.currency || "CNY");
+  const originalAmount = Number(record.originalAmount ?? record.amount ?? 0);
+  const amount = Number(record.amount || 0) || convertToCny(originalAmount, originalCurrency);
+  return {
+    ...record,
+    originalCurrency,
+    originalAmount,
+    amount: roundMoney(amount),
+    exchangeRateToCny: Number(record.exchangeRateToCny || getRateToCny(originalCurrency)),
+    type: getRecordType(record)
+  };
+}
+
+function formatOriginalMoney(record) {
+  const normalized = normalizeRecordShape(record);
+  if (normalized.originalCurrency === "CNY") return "";
+  return `${formatCurrencyAmount(normalized.originalAmount, normalized.originalCurrency)} -> ${formatMoney(normalized.amount)}`;
+}
+
+function formatCurrencyAmount(value, currency) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: normalizeCurrency(currency),
+    maximumFractionDigits: currency === "IDR" || currency === "JPY" || currency === "KRW" ? 0 : 2
+  }).format(Number(value || 0));
+}
+
+function formatRateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "已缓存";
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function projectMonthSpend(records, month) {
@@ -1025,8 +1332,12 @@ function parseCsv(text) {
       id: createId(),
       date: isValidDate(row.date) ? row.date : formatDate(new Date()),
       title: row.title || "导入记录",
-      amount: Number(row.amount || 0),
-      category: CATEGORY_NAMES.includes(row.category) ? row.category : "其他",
+      originalAmount: Number(row.originalAmount || row.amount || row.amountCny || 0),
+      originalCurrency: normalizeCurrency(row.originalCurrency || "CNY"),
+      amount: Number(row.amountCny || row.amount || 0) || convertToCny(Number(row.originalAmount || 0), row.originalCurrency || "CNY"),
+      exchangeRateToCny: Number(row.exchangeRateToCny || getRateToCny(row.originalCurrency || "CNY")),
+      type: row.type === "income" || row.category === "收入" ? "income" : "expense",
+      category: row.type === "income" || row.category === "收入" ? "收入" : (CATEGORY_NAMES.includes(row.category) ? row.category : "其他"),
       essential: String(row.essential).toLowerCase() === "true",
       note: row.note || "",
       source: row.source || "import",
@@ -1090,6 +1401,8 @@ function mergeState(base, saved) {
   if (!merged.settings.firebaseConfigText) {
     merged.settings.firebaseConfigText = DEFAULT_FIREBASE_CONFIG_TEXT;
   }
+  merged.settings.exchangeRates = { ...FALLBACK_RATES_CNY, ...(merged.settings.exchangeRates || {}) };
+  merged.settings.currency = "CNY";
   return merged;
 }
 

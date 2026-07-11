@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>花钱省钱账本</title>
-    <link rel="stylesheet" href="styles.css?v=20260710-1826" />
+    <link rel="stylesheet" href="styles.css?v=20260711-1018" />
   </head>
   <body>
     <button class="mobile-menu-button" type="button" id="mobile-menu-button" aria-label="打开菜单" aria-expanded="false">
@@ -118,6 +118,14 @@
             </div>
             <div class="record-list compact" id="recent-records"></div>
           </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <h3>本月分析</h3>
+              <span class="pill" id="rates-status">汇率未更新</span>
+            </div>
+            <div class="insight-grid" id="insight-grid"></div>
+          </article>
         </section>
 
         <section class="tab-panel" id="capture-panel">
@@ -127,7 +135,7 @@
                 <h3>自然语言记账</h3>
                 <span class="pill" id="ai-status">离线分析可用</span>
               </div>
-              <textarea id="expense-input" rows="7" placeholder="例如：今天午饭 35，打车 18，晚上买咖啡 22；昨天超市买菜 128。"></textarea>
+              <textarea id="expense-input" rows="7" placeholder="例如：今天午饭 35 元，打车 10 美元，超市 50000 印尼盾，咖啡 4.5 SGD；工资 8000。"></textarea>
               <div class="capture-actions">
                 <button class="primary-button" type="button" id="analyze-input">
                   <span data-icon="wand-sparkles"></span>
@@ -138,7 +146,7 @@
                   清空
                 </button>
               </div>
-              <p class="subtle">填入 DeepSeek API key 后会优先使用 AI 分析；没有 key 时会用本地规则识别金额和分类。</p>
+              <p class="subtle">支持识别货币：如“午饭 35 元”“打车 10 美元”“超市 50000 印尼盾”“咖啡 4.5 SGD”。保存后会统一折算成人民币。</p>
             </article>
 
             <article class="panel quick-api-panel">
@@ -188,6 +196,17 @@
                   <input type="number" id="manual-amount" min="0.01" step="0.01" placeholder="35" required />
                 </label>
                 <label>
+                  币种
+                  <select id="manual-currency"></select>
+                </label>
+                <label>
+                  类型
+                  <select id="manual-type">
+                    <option value="expense">支出</option>
+                    <option value="income">收入</option>
+                  </select>
+                </label>
+                <label>
                   分类
                   <select id="manual-category"></select>
                 </label>
@@ -205,7 +224,7 @@
                 </label>
                 <button class="primary-button wide" type="submit">
                   <span data-icon="save"></span>
-                  保存这一笔
+                  保存并换算成人民币
                 </button>
               </form>
             </article>
@@ -265,14 +284,9 @@
                   <input type="number" id="monthly-budget" min="0" step="0.01" placeholder="5000" />
                 </label>
                 <label>
-                  币种
+                  统计币种
                   <select id="currency">
                     <option value="CNY">CNY ¥</option>
-                    <option value="IDR">IDR Rp</option>
-                    <option value="USD">USD $</option>
-                    <option value="SGD">SGD $</option>
-                    <option value="MYR">MYR RM</option>
-                    <option value="THB">THB ฿</option>
                   </select>
                 </label>
                 <button class="primary-button wide" type="submit">
@@ -280,6 +294,35 @@
                   保存设置
                 </button>
               </form>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <h3>汇率换算</h3>
+                <span class="pill" id="exchange-status">备用汇率</span>
+              </div>
+              <form id="exchange-form" class="form-grid">
+                <label>
+                  统计基准
+                  <select id="base-currency">
+                    <option value="CNY">人民币 CNY</option>
+                  </select>
+                </label>
+                <label class="check-row">
+                  <input type="checkbox" id="auto-rates" />
+                  自动更新汇率
+                </label>
+                <button class="primary-button" type="submit">
+                  <span data-icon="refresh-cw"></span>
+                  更新汇率
+                </button>
+                <button class="secondary-button" type="button" id="show-rates">
+                  <span data-icon="calculator"></span>
+                  查看汇率
+                </button>
+              </form>
+              <div class="rates-grid" id="rates-grid"></div>
+              <p class="subtle">汇率来自 ExchangeRate-API Open Access，按 CNY 为基准缓存到浏览器；网络失败时会使用备用汇率。</p>
             </article>
 
             <article class="panel">
@@ -358,6 +401,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260710-1826"></script>
+    <script src="app.js?v=20260711-1018"></script>
   </body>
 </html>
