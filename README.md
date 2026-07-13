@@ -68,6 +68,8 @@ users/{你的Firebase用户ID}/records/{记录ID}
 
 Google 登录不能在微信、LINE、Instagram 等内置浏览器里完成，会出现 `Error 403: disallowed_useragent`。请复制 GitHub Pages 网址，用 Chrome、Safari 或手机默认浏览器打开后再点 Google 登录。
 
+登录成功后，页面会显示 `已登录：你的邮箱`。如果显示 `已登录，同步失败`，说明 Google 登录已经成功，但 Firestore 数据库或安全规则还没配置好。
+
 ## DeepSeek API
 
 在“设置”里填入 API key。当前默认配置：

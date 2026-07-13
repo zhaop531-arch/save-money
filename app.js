@@ -836,6 +836,7 @@ async function initFirebaseFromSaved(force = false) {
       getAuth,
       browserLocalPersistence,
       setPersistence,
+      getRedirectResult,
       onAuthStateChanged,
       getFirestore
     } = firebaseState.modules;
@@ -846,17 +847,34 @@ async function initFirebaseFromSaved(force = false) {
     await setPersistence(firebaseState.auth, browserLocalPersistence);
     firebaseState.ready = true;
 
+    try {
+      const redirectResult = await getRedirectResult(firebaseState.auth);
+      if (redirectResult?.user) {
+        firebaseState.user = redirectResult.user;
+        setFirebaseStatus(`已登录：${redirectResult.user.email || "Google 账号"}`, "");
+        toast("Google 登录成功");
+      }
+    } catch (redirectError) {
+      console.warn(redirectError);
+      toast(firebaseErrorMessage(redirectError));
+    }
+
     if (firebaseState.unsubAuth) {
       firebaseState.unsubAuth();
     }
     firebaseState.unsubAuth = onAuthStateChanged(firebaseState.auth, async (user) => {
       firebaseState.user = user;
       if (user) {
-        setFirebaseStatus("已登录", "");
-        await migrateLocalRecordsToCloud();
-        await saveCloudSettings();
-        listenCloudRecords();
-        toast("Firebase 已连接");
+        setFirebaseStatus(`已登录：${user.email || "Google 账号"}`, "");
+        try {
+          await verifyCloudAccess();
+          await migrateLocalRecordsToCloud();
+          await saveCloudSettings();
+          listenCloudRecords();
+          toast("Firebase 已连接并可同步");
+        } catch {
+          stopCloudListener();
+        }
       } else {
         stopCloudListener();
         setFirebaseStatus("未登录", "warning");
@@ -896,9 +914,19 @@ async function signInFirebase() {
     return;
   }
   try {
-    const { GoogleAuthProvider, signInWithRedirect } = firebaseState.modules;
+    const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = firebaseState.modules;
     const provider = new GoogleAuthProvider();
-    await signInWithRedirect(firebaseState.auth, provider);
+    setFirebaseStatus("登录中", "warning");
+    try {
+      await signInWithPopup(firebaseState.auth, provider);
+    } catch (popupError) {
+      const message = popupError?.message || "";
+      if (message.includes("popup") || message.includes("cancelled") || message.includes("closed")) {
+        await signInWithRedirect(firebaseState.auth, provider);
+      } else {
+        throw popupError;
+      }
+    }
   } catch (error) {
     console.warn(error);
     toast(firebaseErrorMessage(error));
@@ -956,6 +984,22 @@ function stopCloudListener() {
 async function migrateLocalRecordsToCloud() {
   if (!state.records.length) return;
   await saveRecordsToCloud(state.records, false);
+}
+
+async function verifyCloudAccess() {
+  if (!firebaseState.user || !firebaseState.db) return;
+  try {
+    const { doc, setDoc } = firebaseState.modules;
+    await setDoc(doc(firebaseState.db, "users", firebaseState.user.uid, "meta", "status"), {
+      checkedAt: new Date().toISOString(),
+      email: firebaseState.user.email || ""
+    }, { merge: true });
+  } catch (error) {
+    console.warn(error);
+    setFirebaseStatus("已登录，同步失败", "warning");
+    toast("已登录，但 Firestore 写入失败。请检查是否创建 Firestore，并发布了 users/{userId} 规则。");
+    throw error;
+  }
 }
 
 async function saveRecordsToCloud(records, showMessage = true) {
