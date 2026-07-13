@@ -64,6 +64,10 @@ users/{你的Firebase用户ID}/records/{记录ID}
 
 页面里的“导出全部 JSON”和“导出 CSV”会导出当前账号下已加载的全部历史记录。
 
+### 手机登录注意
+
+Google 登录不能在微信、LINE、Instagram 等内置浏览器里完成，会出现 `Error 403: disallowed_useragent`。请复制 GitHub Pages 网址，用 Chrome、Safari 或手机默认浏览器打开后再点 Google 登录。
+
 ## DeepSeek API
 
 在“设置”里填入 API key。当前默认配置：

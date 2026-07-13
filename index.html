@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>花钱省钱账本</title>
-    <link rel="stylesheet" href="styles.css?v=20260711-1018" />
+    <link rel="stylesheet" href="styles.css?v=20260713-0917" />
   </head>
   <body>
     <button class="mobile-menu-button" type="button" id="mobile-menu-button" aria-label="打开菜单" aria-expanded="false">
@@ -330,6 +330,14 @@
                 <h3>Firebase 云端同步</h3>
                 <span class="pill" id="firebase-status">未连接</span>
               </div>
+              <div class="browser-warning" id="browser-warning" hidden>
+                <strong>请用手机系统浏览器登录</strong>
+                <p>微信、LINE、Instagram 等内置浏览器会被 Google 登录拦截。请复制网址，用 Chrome、Safari 或手机默认浏览器打开后再登录。</p>
+                <button class="secondary-button" type="button" id="copy-site-url">
+                  <span data-icon="copy"></span>
+                  复制当前网址
+                </button>
+              </div>
               <form id="firebase-form" class="form-grid">
                 <label class="wide">
                   Firebase Web 配置
@@ -401,6 +409,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="app.js?v=20260711-1018"></script>
+    <script src="app.js?v=20260713-0917"></script>
   </body>
 </html>

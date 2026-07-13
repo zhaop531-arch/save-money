@@ -531,6 +531,28 @@ label {
   line-height: 1.5;
 }
 
+.browser-warning {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid #f0c977;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #5c4106;
+}
+
+.browser-warning[hidden] {
+  display: none;
+}
+
+.browser-warning p {
+  margin: 0;
+  color: #6f560f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .analysis-table {
   display: grid;
   gap: 10px;

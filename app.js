@@ -136,6 +136,8 @@ function bindElements() {
     "firebase-form",
     "firebase-config",
     "firebase-status",
+    "browser-warning",
+    "copy-site-url",
     "firebase-sign-in",
     "firebase-sign-out",
     "firebase-sync-now",
@@ -181,6 +183,7 @@ function hydrateControls() {
   syncApiControls();
   els.aiStatus.textContent = state.settings.deepseekKey ? "DeepSeek 已启用" : "离线分析可用";
   setFirebaseStatus(state.settings.firebaseConfigText ? "未登录" : "未连接", state.settings.firebaseConfigText ? "warning" : "");
+  updateBrowserWarning();
 }
 
 function bindEvents() {
@@ -224,6 +227,7 @@ function bindEvents() {
   });
   els.showRates.addEventListener("click", renderRatesGrid);
   els.firebaseForm.addEventListener("submit", saveFirebaseSettings);
+  els.copySiteUrl.addEventListener("click", copySiteUrl);
   els.firebaseSignIn.addEventListener("click", signInFirebase);
   els.firebaseSignOut.addEventListener("click", signOutFirebase);
   els.firebaseSyncNow.addEventListener("click", syncAllRecordsToCloud);
@@ -879,6 +883,11 @@ async function loadFirebaseModules() {
 }
 
 async function signInFirebase() {
+  if (isBlockedOAuthBrowser()) {
+    updateBrowserWarning();
+    toast("当前内置浏览器不能 Google 登录，请复制网址到 Chrome 或 Safari 打开");
+    return;
+  }
   if (!firebaseState.ready) {
     await initFirebaseFromSaved(true);
   }
@@ -887,16 +896,32 @@ async function signInFirebase() {
     return;
   }
   try {
-    const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = firebaseState.modules;
+    const { GoogleAuthProvider, signInWithRedirect } = firebaseState.modules;
     const provider = new GoogleAuthProvider();
-    if (window.matchMedia("(max-width: 760px)").matches) {
-      await signInWithRedirect(firebaseState.auth, provider);
-    } else {
-      await signInWithPopup(firebaseState.auth, provider);
-    }
+    await signInWithRedirect(firebaseState.auth, provider);
   } catch (error) {
     console.warn(error);
     toast(firebaseErrorMessage(error));
+  }
+}
+
+function isBlockedOAuthBrowser() {
+  const ua = navigator.userAgent || "";
+  return /MicroMessenger|WeChat|Line\/|FBAN|FBAV|Instagram|Twitter|TikTok|wv\)/i.test(ua);
+}
+
+function updateBrowserWarning() {
+  if (!els.browserWarning) return;
+  els.browserWarning.hidden = !isBlockedOAuthBrowser();
+}
+
+async function copySiteUrl() {
+  const url = location.href.split("#")[0];
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("网址已复制，请到 Chrome 或 Safari 打开");
+  } catch {
+    prompt("复制这个网址到 Chrome 或 Safari 打开：", url);
   }
 }
 
@@ -1041,6 +1066,9 @@ function firebaseErrorMessage(error) {
   }
   if (message.includes("auth/popup-blocked")) {
     return "浏览器拦截了登录弹窗，请允许弹窗后再点 Google 登录。";
+  }
+  if (message.includes("disallowed_useragent") || message.includes("403")) {
+    return "Google 不允许在微信等内置浏览器登录。请复制网址到 Chrome 或 Safari 打开。";
   }
   return `Firebase 错误：${message}`;
 }
